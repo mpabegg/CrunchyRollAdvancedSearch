@@ -50,8 +50,8 @@ Visit the live application: [https://af-chacon.github.io/CrunchyRollAdvancedSear
 
 ## 📊 Current Stats
 
-- **1919** anime in the catalog
-- **900+** unique tags from AniList
+- **1900+** anime in the catalog
+- **350+** unique tags from AniList
 - **Daily** automatic updates
 - **Zero** login required
 
