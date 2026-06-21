@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { FilterState, FilterValue, Anime } from '../types'
+import { FilterState, FilterValue, Anime, SortType, SortDirection } from '../types'
 import { TriStateFilter } from './TriStateFilter'
 
 interface FilterControlsProps {
@@ -422,18 +422,46 @@ export function FilterControls({
         >
           Clear Filters
         </button>
-        <div className="per-page-selector">
-          <label htmlFor="itemsPerPage">Show per page:</label>
-          <select
-            id="itemsPerPage"
-            value={itemsPerPage}
-            onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
-          >
-            <option value="16">16</option>
-            <option value="32">32</option>
-            <option value="64">64</option>
-            <option value="128">128</option>
-          </select>
+        <div className="bottom-row">
+          <div className="sorting-controls">
+            <div className="sort-group">
+              <label htmlFor="sortBy">Sort by:</label>
+              <select
+                id="sortBy"
+                value={filter.sortBy}
+                onChange={(e) => onFilterChange({ ...filter, sortBy: e.target.value as SortType })}
+              >
+                <option value="alphabetical">Alphabetical</option>
+                <option value="year">Launch Year</option>
+                <option value="rating">General Rating</option>
+                <option value="anilist_rating">AniList Rating</option>
+              </select>
+            </div>
+            <div className="sort-group">
+              <label htmlFor="sortDirection">Direction:</label>
+              <select
+                id="sortDirection"
+                value={filter.sortDirection}
+                onChange={(e) => onFilterChange({ ...filter, sortDirection: e.target.value as SortDirection })}
+              >
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+            </div>
+          </div>
+          <div className="per-page-selector">
+            <label htmlFor="itemsPerPage">Show per page:</label>
+            <select
+              id="itemsPerPage"
+              value={itemsPerPage}
+              onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
+            >
+              <option value="16">16</option>
+              <option value="32">32</option>
+              <option value="64">64</option>
+              <option value="128">128</option>
+            </select>
+          </div>
         </div>
       </div>
     </>

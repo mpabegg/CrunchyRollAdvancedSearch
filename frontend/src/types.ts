@@ -55,6 +55,9 @@ export interface Anime {
 
 export type FilterValue = 'include' | 'exclude' | 'default'
 
+export type SortType = 'alphabetical' | 'year' | 'rating' | 'anilist_rating'
+export type SortDirection = 'asc' | 'desc'
+
 export interface FilterState {
   mature: FilterValue
   dubbed: FilterValue
@@ -65,4 +68,6 @@ export interface FilterState {
   tags: Record<string, FilterValue>
   status: Record<string, FilterValue>
   studios: Record<string, FilterValue>
+  sortBy: SortType
+  sortDirection: SortDirection
 }

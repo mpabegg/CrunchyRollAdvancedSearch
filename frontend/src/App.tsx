@@ -25,7 +25,9 @@ function App() {
     genres: {},
     tags: {},
     status: {},
-    studios: {}
+    studios: {},
+    sortBy: 'alphabetical',
+    sortDirection: 'asc'
   })
 
   const clearFilters = () => {
@@ -38,7 +40,9 @@ function App() {
       genres: {},
       tags: {},
       status: {},
-      studios: {}
+      studios: {},
+      sortBy: 'alphabetical',
+      sortDirection: 'asc'
     })
     setSearchTerm('')
   }
@@ -173,13 +177,44 @@ function App() {
     })
 
     return matchesSearch && matchesMature && matchesDubbed && matchesSubbed && matchesRating && matchesContentDescriptors && matchesGenres && matchesTags && matchesStatus && matchesStudios
+  }).sort((a, b) => {
+    const direction = filter.sortDirection === 'asc' ? 1 : -1
+    
+    let comparison = 0
+    switch (filter.sortBy) {
+      case 'alphabetical':
+        comparison = a.title.localeCompare(b.title)
+        break
+      case 'year':
+        const yearA = a.series_metadata?.series_launch_year || 0
+        const yearB = b.series_metadata?.series_launch_year || 0
+        comparison = yearA - yearB
+        break
+      case 'rating':
+        const ratingA = parseFloat(a.rating?.average || '0')
+        const ratingB = parseFloat(b.rating?.average || '0')
+        comparison = ratingA - ratingB
+        break
+      case 'anilist_rating':
+        const anilistA = a.anilist?.average_score || 0
+        const anilistB = b.anilist?.average_score || 0
+        comparison = anilistA - anilistB
+        break
+    }
+
+    // If values are equal (or for alphabetical), sort by title ascending (always)
+    if (comparison === 0) {
+      return a.title.localeCompare(b.title)
+    }
+
+    return comparison * direction
   })
 
   const totalPages = Math.ceil(filteredAnime.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedAnime = filteredAnime.slice(startIndex, startIndex + itemsPerPage)
 
-  // Reset to page 1 when filters or items per page change
+  // Reset to page 1 when filters, items per page, or sorting change
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm, filter, itemsPerPage])

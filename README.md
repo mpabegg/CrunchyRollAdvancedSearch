@@ -36,6 +36,7 @@ Crunchyroll's metadata is often incomplete. We enhance it with data from AniList
 - **Active Filter Tracking**: Display of active filters in section headers
 - **Clickable Tags**: Click any tag to add it as a filter
 - **Pagination**: Adjustable results per page (16, 32, 64, 128)
+- **Sorting**: Adjustable sorting order (alphabetical, Crunchyroll launch year, ratings)
 - **Direct Links**: Click anime cards to go straight to Crunchyroll
 
 ### Data Quality
