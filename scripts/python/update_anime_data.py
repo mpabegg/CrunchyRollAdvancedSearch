@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from difflib import SequenceMatcher
 import requests
 
@@ -262,22 +262,12 @@ def fetch_crunchyroll_anime(access_token: str) -> List[Dict]:
 
     url = "https://www.crunchyroll.com/content/v2/discover/browse"
 
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.crunchyroll.com/videos/alphabetical",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin"
-    }
+    headers = crunchyroll_browser_headers(access_token)
+
+    page_size = 100
 
     params = {
-        "n": 2000,  # Fetch up to 2000 items
+        "n": page_size,
         "type": "series",
         "locale": "en-US",
         "sort_by": "alphabetical",
@@ -288,13 +278,29 @@ def fetch_crunchyroll_anime(access_token: str) -> List[Dict]:
     all_items = []
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=60)
-        response.raise_for_status()
+        total = None
+        start = 0
 
-        data = response.json()
-        items = data.get("data", [])
-        total = data.get("total", 0)
-        all_items.extend(items)
+        while total is None or start < total:
+            page_params = {**params, "start": start}
+            response = requests.get(url, headers=headers, params=page_params, timeout=60)
+            response.raise_for_status()
+
+            data = response.json()
+            items = data.get("data", [])
+            total = data.get("total", len(all_items) + len(items))
+
+            if not items:
+                break
+
+            all_items.extend(items)
+            print(f"  Fetched {len(all_items)} of {total} anime series")
+            start += len(items)
+
+            if len(items) < page_size:
+                break
+
+            time.sleep(0.2)
 
         # Validate format of first item
         if all_items and not validate_crunchyroll_format(all_items[0]):
@@ -309,6 +315,173 @@ def fetch_crunchyroll_anime(access_token: str) -> List[Dict]:
     except requests.exceptions.RequestException as e:
         print(f"ERROR: Failed to fetch anime: {e}")
         sys.exit(1)
+
+
+def crunchyroll_browser_headers(access_token: str) -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.crunchyroll.com/videos/alphabetical",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin"
+    }
+
+
+def extract_season_audio_locales(season: Dict) -> Set[str]:
+    locales: Set[str] = set()
+
+    for locale in season.get('audio_locales', []) or []:
+        if locale:
+            locales.add(locale)
+
+    audio_locale = season.get('audio_locale')
+    if audio_locale:
+        locales.add(audio_locale)
+
+    for version in season.get('versions', []) or []:
+        version_locale = version.get('audio_locale')
+        if version_locale:
+            locales.add(version_locale)
+
+    return locales
+
+
+def fetch_series_audio_coverage(access_token: str, series_id: str, season_count: int, max_retries: int = 3) -> Optional[Dict]:
+    if season_count <= 1:
+        return None
+
+    url = f"https://www.crunchyroll.com/content/v2/cms/series/{series_id}/seasons"
+    headers = crunchyroll_browser_headers(access_token)
+    params = {
+        "locale": "en-US",
+        "preferred_audio_language": "ja-JP",
+        "n": 200
+    }
+
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                delay = 1.5 * attempt
+                print(f"    Coverage retry {attempt + 1}/{max_retries} for {series_id} after {delay:.1f}s")
+                time.sleep(delay)
+
+            response = requests.get(url, headers=headers, params=params, timeout=45)
+
+            if response.status_code == 429:
+                print(f"    Coverage rate limited for {series_id} (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return None
+
+            response.raise_for_status()
+            data = response.json()
+            seasons = data.get('data') or data.get('items') or data.get('seasons') or []
+
+            if not seasons:
+                print(f"    WARNING: No season coverage data returned for {series_id}")
+                return None
+
+            season_locale_sets = [extract_season_audio_locales(season) for season in seasons]
+
+            if not season_locale_sets:
+                print(f"    WARNING: No audio locale data found for {series_id}")
+                return None
+
+            seasons_total = len(season_locale_sets)
+            all_locales = set().union(*season_locale_sets)
+            coverage: Dict[str, Dict[str, object]] = {}
+            complete_audio_locales = []
+
+            for locale in sorted(all_locales):
+                if locale == 'ja-JP':
+                    continue
+                seasons_with_locale = sum(1 for locales in season_locale_sets if locale in locales)
+                complete = seasons_with_locale == seasons_total
+                coverage[locale] = {
+                    'complete': complete,
+                    'seasons_with_locale': seasons_with_locale,
+                    'seasons_total': seasons_total
+                }
+                if complete:
+                    complete_audio_locales.append(locale)
+
+            return {
+                'complete_audio_locales': complete_audio_locales,
+                'audio_locale_coverage': coverage,
+                'seasons_total': seasons_total
+            }
+
+        except requests.exceptions.RequestException as e:
+            print(f"    WARNING: Coverage fetch failed for {series_id} (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt == max_retries - 1:
+                return None
+        except Exception as e:
+            print(f"    WARNING: Could not parse coverage for {series_id}: {e}")
+            return None
+
+    return None
+
+
+def enrich_audio_coverage(anime_data: List[Dict], access_token: str) -> Dict[str, int]:
+    print("\nEnriching audio coverage metadata...")
+
+    derived_count = 0
+    refreshed_count = 0
+    failed_count = 0
+
+    for index, anime in enumerate(anime_data):
+        metadata = anime.get('series_metadata')
+        if not metadata:
+            continue
+
+        season_count = metadata.get('season_count') or 0
+        base_audio_locales = [locale for locale in (metadata.get('audio_locales') or []) if locale and locale != 'ja-JP']
+
+        if not base_audio_locales:
+            continue
+
+        if season_count <= 1:
+            metadata['complete_audio_locales'] = sorted(base_audio_locales)
+            metadata['audio_locale_coverage'] = {
+                locale: {
+                    'complete': True,
+                    'seasons_with_locale': 1,
+                    'seasons_total': 1
+                }
+                for locale in base_audio_locales
+            }
+            derived_count += 1
+            continue
+
+        if index > 0 and index % 20 == 0:
+            time.sleep(0.25)
+
+        coverage = fetch_series_audio_coverage(access_token, anime['id'], season_count)
+        if not coverage:
+            failed_count += 1
+            continue
+
+        metadata['complete_audio_locales'] = coverage['complete_audio_locales']
+        metadata['audio_locale_coverage'] = coverage['audio_locale_coverage']
+        refreshed_count += 1
+
+    print(
+        f"✓ Audio coverage derived for {derived_count} single-season series, "
+        f"refreshed for {refreshed_count} multi-season series, {failed_count} failed"
+    )
+
+    return {
+        'derived': derived_count,
+        'refreshed': refreshed_count,
+        'failed': failed_count
+    }
 
 
 def load_previous_data(filepath: str) -> List[Dict]:
@@ -468,23 +641,27 @@ def main():
     log_dir = 'data_change_logs'
 
     # Load previous data
-    print("\n[1/6] Loading previous anime data...")
+    print("\n[1/7] Loading previous anime data...")
     old_data = load_previous_data(anime_json_path)
     print(f"✓ Loaded {len(old_data)} previous entries")
 
     # Get anonymous token and fetch new data
-    print("\n[2/6] Getting anonymous access token...")
+    print("\n[2/7] Getting anonymous access token...")
     access_token = get_anonymous_token()
 
-    print("\n[3/6] Fetching anime catalog from Crunchyroll...")
+    print("\n[3/7] Fetching anime catalog from Crunchyroll...")
     new_raw_data = fetch_crunchyroll_anime(access_token)
 
     # Enhance new data with AniList
-    print("\n[4/6] Enhancing data with AniList metadata...")
+    print("\n[4/7] Enhancing data with AniList metadata...")
     enhanced_count, not_found_count = enhance_with_anilist(new_raw_data)
 
+    # Enrich audio coverage metadata
+    print("\n[5/7] Enriching audio coverage metadata...")
+    coverage_stats = enrich_audio_coverage(new_raw_data, access_token)
+
     # Compare datasets
-    print("\n[5/6] Comparing datasets and generating change log...")
+    print("\n[6/7] Comparing datasets and generating change log...")
     diff = compare_datasets(old_data, new_raw_data)
 
     # Save change log
@@ -494,7 +671,7 @@ def main():
     print_summary(log_data['summary'])
 
     # Save new data
-    print(f"[6/6] Saving new data to {anime_json_path}...")
+    print(f"[7/7] Saving new data to {anime_json_path}...")
     with open(anime_json_path, 'w', encoding='utf-8') as f:
         json.dump(new_raw_data, f, indent=2, ensure_ascii=False)
     print("✓ Data saved successfully")
@@ -511,6 +688,9 @@ def main():
             f.write(f"status_changes={log_data['summary']['status_changes_count']}\n")
             f.write(f"enhanced={enhanced_count}\n")
             f.write(f"not_found={not_found_count}\n")
+            f.write(f"coverage_derived={coverage_stats['derived']}\n")
+            f.write(f"coverage_refreshed={coverage_stats['refreshed']}\n")
+            f.write(f"coverage_failed={coverage_stats['failed']}\n")
 
 
 if __name__ == '__main__':

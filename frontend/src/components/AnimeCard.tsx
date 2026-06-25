@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Anime, FilterState } from '../types'
+import { getLocaleDisplayName, getLocaleShortLabel } from '../utils/locales'
 
 interface AnimeCardProps {
   anime: Anime
@@ -61,6 +62,10 @@ export function AnimeCard({ anime, onFilterChange, currentFilter }: AnimeCardPro
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const selectedAudioLocales = currentFilter.audioLocales.length > 0
+    ? currentFilter.audioLocales.filter(locale => anime.series_metadata?.audio_locales?.includes(locale))
+    : []
+
   return (
     <div className="anime-card">
       <a href={crunchyrollUrl} target="_blank" rel="noopener noreferrer" className="anime-card-link">
@@ -118,6 +123,11 @@ export function AnimeCard({ anime, onFilterChange, currentFilter }: AnimeCardPro
               Subbed
             </span>
           )}
+          {selectedAudioLocales.length > 0 && selectedAudioLocales.map(locale => (
+            <span key={locale} className="tag audio-locale-tag" title={getLocaleDisplayName(locale)}>
+              {getLocaleShortLabel(locale)}
+            </span>
+          ))}
           {anime.series_metadata?.content_descriptors?.map(desc => (
             <span
               key={desc}

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { FilterState, FilterValue, Anime, SortType, SortDirection } from '../types'
 import { TriStateFilter } from './TriStateFilter'
+import { getLocaleDisplayName, getLocaleShortLabel } from '../utils/locales'
 
 interface FilterControlsProps {
   filter: FilterState
@@ -13,6 +14,8 @@ interface FilterControlsProps {
   availableTags: string[]
   availableStatuses: string[]
   availableStudios: string[]
+  availableAudioLocales: string[]
+  hasAudioCoverageData: boolean
   anime: Anime[]
 }
 
@@ -27,6 +30,8 @@ export function FilterControls({
   availableTags,
   availableStatuses,
   availableStudios,
+  availableAudioLocales,
+  hasAudioCoverageData,
   anime
 }: FilterControlsProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -35,10 +40,12 @@ export function FilterControls({
     contentWarnings: false,
     tags: false,
     status: false,
-    studios: false
+    studios: false,
+    audioLocales: false
   })
   const [tagSearch, setTagSearch] = useState('')
   const [studioSearch, setStudioSearch] = useState('')
+  const [audioLocaleSearch, setAudioLocaleSearch] = useState('')
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
@@ -51,6 +58,15 @@ export function FilterControls({
   const filteredStudios = availableStudios.filter(studio =>
     studio.toLowerCase().includes(studioSearch.toLowerCase())
   )
+
+  const filteredAudioLocales = availableAudioLocales.filter(locale => {
+    const search = audioLocaleSearch.toLowerCase()
+    return (
+      locale.toLowerCase().includes(search) ||
+      getLocaleDisplayName(locale).toLowerCase().includes(search) ||
+      getLocaleShortLabel(locale).toLowerCase().includes(search)
+    )
+  })
 
   const formatLabel = (label: string) => {
     return label
@@ -93,6 +109,10 @@ export function FilterControls({
 
   const getCountForContentDescriptor = useMemo(() => (descriptor: string) => {
     return anime.filter(item => item.series_metadata?.content_descriptors?.includes(descriptor)).length
+  }, [anime])
+
+  const getCountForAudioLocale = useMemo(() => (locale: string) => {
+    return anime.filter(item => item.series_metadata?.audio_locales?.includes(locale)).length
   }, [anime])
 
   const handleContentDescriptorChange = (descriptor: string, value: FilterValue) => {
@@ -144,6 +164,20 @@ export function FilterControls({
     }
     onFilterChange({ ...filter, studios: newStudios })
   }
+
+  const toggleAudioLocale = (locale: string) => {
+    const nextLocales = filter.audioLocales.includes(locale)
+      ? filter.audioLocales.filter(value => value !== locale)
+      : [...filter.audioLocales, locale]
+
+    onFilterChange({
+      ...filter,
+      audioLocales: nextLocales,
+      requireCompleteDubs: nextLocales.length > 0 ? filter.requireCompleteDubs : false
+    })
+  }
+
+  const audioLocaleSelectionCount = filter.audioLocales.length
 
   return (
     <>
@@ -410,6 +444,90 @@ export function FilterControls({
                   />
                 ))}
               </div>
+            </>
+          )}
+        </div>
+      )}
+      {availableAudioLocales.length > 0 && (
+        <div className="filter-section">
+          <button
+            type="button"
+            className="section-toggle"
+            onClick={() => toggleSection('audioLocales')}
+          >
+            <div className="section-header">
+              <span className="section-label">Dubbed Languages ({availableAudioLocales.length})</span>
+              {audioLocaleSelectionCount > 0 && (
+                <span className="filter-count">{audioLocaleSelectionCount} selected</span>
+              )}
+            </div>
+            <span className="toggle-icon">{expandedSections.audioLocales ? '▼' : '▶'}</span>
+          </button>
+          {expandedSections.audioLocales && (
+            <>
+              <p className="section-copy">
+                Include only the dubbed audio locales you want to browse. Japanese audio is hidden here because it is usually the original track.
+              </p>
+              {hasAudioCoverageData ? (
+                <label className={`complete-dubs-toggle ${!filter.audioLocales.length ? 'disabled' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={filter.requireCompleteDubs}
+                    disabled={filter.audioLocales.length === 0}
+                    onChange={(e) => onFilterChange({ ...filter, requireCompleteDubs: e.target.checked })}
+                  />
+                  <span>
+                    Require complete selected dubs
+                    <small>Only show titles where at least one selected dub language is available for every season we could verify.</small>
+                  </span>
+                </label>
+              ) : (
+                <p className="section-empty">Complete-dub filtering requires refreshed coverage data.</p>
+              )}
+              <input
+                type="text"
+                className="filter-search"
+                placeholder="Search languages..."
+                value={audioLocaleSearch}
+                onChange={(e) => setAudioLocaleSearch(e.target.value)}
+              />
+              {audioLocaleSelectionCount > 0 && (
+                <div className="section-actions">
+                  <button
+                    type="button"
+                    className="clear-selected-btn"
+                    onClick={() => onFilterChange({ ...filter, audioLocales: [], requireCompleteDubs: false })}
+                  >
+                    Clear selected dub languages
+                  </button>
+                </div>
+              )}
+              <div className="language-chip-grid">
+                {filteredAudioLocales.map(locale => {
+                  const selected = filter.audioLocales.includes(locale)
+                  const shortLabel = getLocaleShortLabel(locale)
+                  const displayLabel = getLocaleDisplayName(locale)
+
+                  return (
+                    <button
+                      key={locale}
+                      type="button"
+                      className={`language-chip ${selected ? 'selected' : ''}`}
+                      onClick={() => toggleAudioLocale(locale)}
+                      title={displayLabel}
+                      aria-pressed={selected}
+                      aria-label={`${selected ? 'Remove' : 'Include'} ${displayLabel} dubs`}
+                    >
+                      <span className="language-chip-short">{shortLabel}</span>
+                      <span className="language-chip-label">{displayLabel}</span>
+                      <span className="language-chip-count">{getCountForAudioLocale(locale)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {filteredAudioLocales.length === 0 && (
+                <p className="section-empty">No languages match “{audioLocaleSearch}”.</p>
+              )}
             </>
           )}
         </div>

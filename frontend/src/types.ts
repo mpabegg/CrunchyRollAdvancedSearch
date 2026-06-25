@@ -19,6 +19,12 @@ export interface Anime {
     is_dubbed: boolean
     is_subbed: boolean
     audio_locales: string[]
+    complete_audio_locales?: string[]
+    audio_locale_coverage?: Record<string, {
+      complete: boolean
+      seasons_with_locale: number
+      seasons_total: number
+    }>
     subtitle_locales: string[]
     content_descriptors: string[]
     tenant_categories: string[]
@@ -62,6 +68,8 @@ export interface FilterState {
   mature: FilterValue
   dubbed: FilterValue
   subbed: FilterValue
+  audioLocales: string[]
+  requireCompleteDubs: boolean
   minRating: number
   contentDescriptors: Record<string, FilterValue>
   genres: Record<string, FilterValue>

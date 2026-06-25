@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 import { Anime, FilterState } from './types'
+import { getLocaleDisplayName } from './utils/locales'
 import {
   Header,
   SearchBar,
@@ -20,6 +21,8 @@ function App() {
     mature: 'default',
     dubbed: 'default',
     subbed: 'default',
+    audioLocales: [],
+    requireCompleteDubs: false,
     minRating: 0,
     contentDescriptors: {},
     genres: {},
@@ -35,6 +38,8 @@ function App() {
       mature: 'default',
       dubbed: 'default',
       subbed: 'default',
+      audioLocales: [],
+      requireCompleteDubs: false,
       minRating: 0,
       contentDescriptors: {},
       genres: {},
@@ -112,6 +117,19 @@ function App() {
     )
   ).sort()
 
+  const availableAudioLocales = Array.from(
+    new Set(
+      anime
+        .flatMap(item => item.series_metadata?.audio_locales || [])
+        .filter(locale => locale && locale !== 'ja-JP')
+    )
+  ).sort((a, b) => getLocaleDisplayName(a).localeCompare(getLocaleDisplayName(b)))
+
+  const hasAudioCoverageData = anime.some(item =>
+    Boolean(item.series_metadata?.complete_audio_locales?.length) ||
+    Boolean(item.series_metadata?.audio_locale_coverage && Object.keys(item.series_metadata.audio_locale_coverage).length > 0)
+  )
+
   const filteredAnime = anime.filter(item => {
     const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.description.toLowerCase().includes(searchTerm.toLowerCase())
@@ -128,6 +146,12 @@ function App() {
     const matchesSubbed = filter.subbed === 'default' ||
                          (filter.subbed === 'include' && item.series_metadata?.is_subbed) ||
                          (filter.subbed === 'exclude' && !item.series_metadata?.is_subbed)
+
+    const matchesAudioLocales =
+      filter.audioLocales.length === 0 ||
+      (filter.requireCompleteDubs
+        ? filter.audioLocales.some(locale => item.series_metadata?.complete_audio_locales?.includes(locale))
+        : filter.audioLocales.some(locale => item.series_metadata?.audio_locales?.includes(locale)))
 
     const matchesRating = parseFloat(item.rating?.average || '0') >= filter.minRating
 
@@ -176,7 +200,7 @@ function App() {
       return true
     })
 
-    return matchesSearch && matchesMature && matchesDubbed && matchesSubbed && matchesRating && matchesContentDescriptors && matchesGenres && matchesTags && matchesStatus && matchesStudios
+    return matchesSearch && matchesMature && matchesDubbed && matchesSubbed && matchesAudioLocales && matchesRating && matchesContentDescriptors && matchesGenres && matchesTags && matchesStatus && matchesStudios
   }).sort((a, b) => {
     const direction = filter.sortDirection === 'asc' ? 1 : -1
     
@@ -210,9 +234,27 @@ function App() {
     return comparison * direction
   })
 
-  const totalPages = Math.ceil(filteredAnime.length / itemsPerPage)
+  const totalPages = Math.max(1, Math.ceil(filteredAnime.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedAnime = filteredAnime.slice(startIndex, startIndex + itemsPerPage)
+  const selectedAudioLocaleLabels = filter.audioLocales.map(locale => ({
+    locale,
+    label: getLocaleDisplayName(locale)
+  }))
+  const activeDubModeLabel = filter.requireCompleteDubs ? 'complete only' : null
+
+  const clearAudioLocale = (locale: string) => {
+    const nextLocales = filter.audioLocales.filter(value => value !== locale)
+    setFilter({
+      ...filter,
+      audioLocales: nextLocales,
+      requireCompleteDubs: nextLocales.length > 0 ? filter.requireCompleteDubs : false
+    })
+  }
+
+  const clearAudioLocales = () => {
+    setFilter({ ...filter, audioLocales: [], requireCompleteDubs: false })
+  }
 
   // Reset to page 1 when filters, items per page, or sorting change
   useEffect(() => {
@@ -240,24 +282,74 @@ function App() {
           availableTags={availableTags}
           availableStatuses={availableStatuses}
           availableStudios={availableStudios}
+          availableAudioLocales={availableAudioLocales}
+          hasAudioCoverageData={hasAudioCoverageData}
           anime={anime}
         />
       </div>
+
+      {(selectedAudioLocaleLabels.length > 0 || activeDubModeLabel) && (
+        <div className="active-filter-summary" aria-label="Active dub language filters">
+          <span className="active-filter-summary-label">Dubbed in:</span>
+          {activeDubModeLabel && (
+            <span className="active-filter-chip active-filter-chip--mode">Complete selected dubs</span>
+          )}
+          {selectedAudioLocaleLabels.map(({ locale, label }) => (
+            <button
+              key={locale}
+              type="button"
+              className="active-filter-chip"
+              onClick={() => clearAudioLocale(locale)}
+              aria-label={`Remove ${label} dub filter`}
+            >
+              {label}
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="active-filter-clear"
+            onClick={clearAudioLocales}
+          >
+            Clear dub filters
+          </button>
+        </div>
+      )}
 
       <p className="results-count">
         {filteredAnime.length} results (Page {currentPage} of {totalPages})
       </p>
 
-      <div className="anime-grid">
-        {paginatedAnime.map(item => (
-          <AnimeCard
-            key={item.id}
-            anime={item}
-            onFilterChange={setFilter}
-            currentFilter={filter}
-          />
-        ))}
-      </div>
+      {filteredAnime.length > 0 ? (
+        <div className="anime-grid">
+          {paginatedAnime.map(item => (
+            <AnimeCard
+              key={item.id}
+              anime={item}
+              onFilterChange={setFilter}
+              currentFilter={filter}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-results">
+          <h2>No titles match these filters.</h2>
+          {filter.audioLocales.length > 0 ? (
+            <>
+              <p>
+                {filter.requireCompleteDubs
+                  ? 'Try turning off complete-dub filtering, choosing another language, or clearing dub filters.'
+                  : 'Try removing a dubbed language filter or choosing another language.'}
+              </p>
+              <button type="button" onClick={clearAudioLocales} className="clear-selected-btn">
+                Clear dub filters
+              </button>
+            </>
+          ) : (
+            <p>Try clearing some filters or changing your search.</p>
+          )}
+        </div>
+      )}
 
       <Pagination
         currentPage={currentPage}
